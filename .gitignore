@@ -56,5 +56,9 @@ qlib/_version.py
 reports/*.html
 reports/*.xlsx
 reports/*.csv
+scripts/auto_trading/reports/*.html
+scripts/auto_trading/reports/*.xlsx
+scripts/auto_trading/reports/*.csv
+scripts/auto_trading/my_portfolio.csv
 .idea/
 .aider*

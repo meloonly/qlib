@@ -4,8 +4,37 @@
 
 这是一个基于 Qlib 构建的完整自动化量化交易系统，支持 A股、港股、ETF 的每日自动化交易流程。
 
+## 🎯 三种使用方式
+
+### ⚡ 快速分析（推荐新手）
+输入几只股票代码，立即查看技术分析和投资建议
+```bash
+python quick_analysis.py SH600000 SH600036 SH510300 --report
+```
+
+### 💼 持仓监控（推荐日常使用）
+每天自动分析持仓，给出买入/卖出/持有建议
+```bash
+python portfolio_monitor.py --portfolio my_portfolio.csv --daily-report
+```
+
+### 🤖 完整自动化系统（高级用户）
+完整的量化交易解决方案，包括数据更新、模型训练、组合优化
+```bash
+python main_controller.py --config config.yaml
+```
+
+👉 **详细使用指南**: [QUICK_START.md](QUICK_START.md)
+
+---
+
 ## ✨ 核心功能
 
+### 基础工具
+- **快速分析** (`quick_analysis.py`): 技术指标、风险分析、综合评分
+- **持仓监控** (`portfolio_monitor.py`): 每日交易提示、止盈止损建议
+
+### 高级功能
 - **多市场数据更新**: 自动更新 A股、港股、ETF 数据
 - **智能信号生成**: 滚动训练 + 多模型集成预测
 - **组合优化**: 基于风险约束的凸优化，生成目标权重和订单
