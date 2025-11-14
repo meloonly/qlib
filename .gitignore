@@ -48,5 +48,13 @@ tags
 *.swp
 
 ./pretrain
+
+# Auto-generated version file
+qlib/_version.py
+
+# Auto-trading system reports (generated files, not source code)
+reports/*.html
+reports/*.xlsx
+reports/*.csv
 .idea/
 .aider*
