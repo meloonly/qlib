@@ -25,6 +25,8 @@ qlib/_version.py
 # Auto trading system
 scripts/auto_trading/*.db
 scripts/auto_trading/email_config.json
+scripts/auto_trading/system_config.yaml
+scripts/auto_trading/logs/
 scripts/auto_trading/reports/*.html
 scripts/auto_trading/reports/*.xlsx
 scripts/auto_trading/reports/*.csv
