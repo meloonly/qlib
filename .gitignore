@@ -20,6 +20,15 @@ dist/
 .vscode
 
 qlib/VERSION.txt
+qlib/_version.py
+
+# Auto trading system
+scripts/auto_trading/*.db
+scripts/auto_trading/email_config.json
+scripts/auto_trading/reports/*.html
+scripts/auto_trading/reports/*.xlsx
+scripts/auto_trading/reports/*.csv
+scripts/auto_trading/my_portfolio.csv
 qlib/data/_libs/expanding.cpp
 qlib/data/_libs/rolling.cpp
 examples/estimator/estimator_example/
