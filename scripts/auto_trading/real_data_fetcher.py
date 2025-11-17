@@ -4,10 +4,14 @@
 真实数据获取器
 
 支持多种数据源：
-1. Yahoo Finance - 免费，无需API key，适合美股/港股/部分A股ETF
-2. Tushare - 需要token，专业A股数据
+1. AKShare - 完全免费，无积分限制，数据最全面（推荐）
+2. Yahoo Finance - 免费，无需API key，适合美股/港股/部分A股ETF
+3. Tushare - 需要token，专业A股数据
 
 使用方法:
+    # AKShare (推荐，完全免费)
+    python real_data_fetcher.py --source akshare --codes 600000 000001 --days 365
+
     # Yahoo Finance (无需配置)
     python real_data_fetcher.py --source yahoo --codes 600000.SS 000001.SZ --days 365
 
@@ -15,7 +19,7 @@
     python real_data_fetcher.py --source tushare --codes 600000.SH 000001.SZ --days 365 --token YOUR_TOKEN
 
     # 测试策略
-    python real_data_fetcher.py --source yahoo --test-strategy dual_ma
+    python real_data_fetcher.py --source akshare --test-strategy dual_ma
 """
 
 import pandas as pd
@@ -344,22 +348,117 @@ class TushareDataFetcher:
         return code
 
 
+class AKShareAdapter:
+    """
+    AKShare 适配器 - 适配 AKShareDataFetcher 到统一接口
+
+    优点：完全免费，无积分限制，数据全面
+    推荐作为首选数据源
+    """
+
+    def __init__(self):
+        self.name = "AKShare"
+        try:
+            from akshare_fetcher import AKShareDataFetcher
+            self.fetcher = AKShareDataFetcher()
+            print(f"✅ AKShare 适配器已初始化")
+        except ImportError as e:
+            print(f"❌ AKShare 适配器初始化失败: {str(e)}")
+            self.fetcher = None
+
+    def fetch_single_stock(self, code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        """获取单个股票数据"""
+        if self.fetcher is None:
+            return pd.DataFrame()
+
+        # 标准化代码
+        code = self._normalize_code(code)
+
+        # 使用 AKShareDataFetcher 获取数据
+        df = self.fetcher.fetch_stock_history(
+            code=code,
+            start_date=start_date,
+            end_date=end_date
+        )
+
+        # 确保列名统一
+        if not df.empty:
+            required_cols = ['code', 'date', 'open', 'high', 'low', 'close', 'volume']
+            for col in required_cols:
+                if col not in df.columns:
+                    df[col] = 0
+            df = df[required_cols]
+
+        return df
+
+    def fetch_multiple_stocks(self, codes: list, start_date: str, end_date: str,
+                             delay: float = 0.3) -> pd.DataFrame:
+        """获取多个股票数据"""
+        if self.fetcher is None:
+            return pd.DataFrame()
+
+        print(f"\n📥 从 AKShare 获取数据...")
+        print(f"股票数量: {len(codes)}")
+        print(f"时间范围: {start_date} 至 {end_date}")
+
+        all_data = []
+
+        for i, code in enumerate(codes):
+            print(f"  ({i+1}/{len(codes)}) 获取 {code}...", end="")
+            df = self.fetch_single_stock(code, start_date, end_date)
+
+            if not df.empty:
+                all_data.append(df)
+
+            if i < len(codes) - 1:
+                time.sleep(delay)
+
+        if all_data:
+            result = pd.concat(all_data, ignore_index=True)
+            print(f"\n✅ 成功获取 {len(all_data)} 只股票数据，共 {len(result)} 条记录")
+            return result
+        else:
+            print("\n❌ 未能获取任何数据")
+            return pd.DataFrame()
+
+    @staticmethod
+    def _normalize_code(code: str) -> str:
+        """标准化股票代码（去除前缀后缀）"""
+        code = str(code).strip().upper()
+        # 移除常见前缀
+        for prefix in ['SH', 'SZ', 'sh', 'sz']:
+            if code.startswith(prefix):
+                code = code[2:]
+                break
+        # 移除后缀
+        for suffix in ['.SS', '.SZ', '.SH', '.ss', '.sz', '.sh']:
+            code = code.replace(suffix, '')
+        return code
+
+    @staticmethod
+    def convert_a_share_code(code: str) -> str:
+        """转换A股代码为标准格式（AKShare只需要数字代码）"""
+        return AKShareAdapter._normalize_code(code)
+
+
 class RealDataFetcher:
     """
     统一的真实数据获取接口
     """
 
-    def __init__(self, source: str = 'yahoo', tushare_token: str = None):
+    def __init__(self, source: str = 'akshare', tushare_token: str = None):
         """
         初始化数据获取器
 
         参数:
-            source: 'yahoo' 或 'tushare'
+            source: 'akshare'（推荐）, 'yahoo' 或 'tushare'
             tushare_token: Tushare API token
         """
         self.source = source
 
-        if source == 'yahoo':
+        if source == 'akshare':
+            self.fetcher = AKShareAdapter()
+        elif source == 'yahoo':
             self.fetcher = YahooFinanceDataFetcher()
         elif source == 'tushare':
             self.fetcher = TushareDataFetcher(token=tushare_token)
@@ -388,7 +487,9 @@ class RealDataFetcher:
         # 转换代码格式
         converted_codes = []
         for code in codes:
-            if self.source == 'yahoo':
+            if self.source == 'akshare':
+                converted_codes.append(AKShareAdapter.convert_a_share_code(code))
+            elif self.source == 'yahoo':
                 converted_codes.append(YahooFinanceDataFetcher.convert_a_share_code(code))
             else:
                 converted_codes.append(TushareDataFetcher.convert_a_share_code(code))
@@ -486,9 +587,9 @@ def test_strategy_with_real_data(data: pd.DataFrame, strategy_name: str = 'dual_
 
 def main():
     parser = argparse.ArgumentParser(description='真实数据获取器')
-    parser.add_argument('--source', type=str, default='yahoo',
-                       choices=['yahoo', 'tushare'],
-                       help='数据源 (yahoo 或 tushare)')
+    parser.add_argument('--source', type=str, default='akshare',
+                       choices=['akshare', 'yahoo', 'tushare'],
+                       help='数据源 (akshare[推荐], yahoo 或 tushare)')
     parser.add_argument('--codes', nargs='+', type=str,
                        default=['600000', '000001', '600036', '601318', '600519'],
                        help='股票代码列表')
@@ -501,12 +602,26 @@ def main():
     parser.add_argument('--test-strategy', type=str, default=None,
                        choices=['dual_ma', 'momentum', 'mean_reversion', 'alpha101'],
                        help='测试策略')
+    parser.add_argument('--check', action='store_true',
+                       help='检查数据新鲜度')
 
     args = parser.parse_args()
 
     print("=" * 60)
     print("📊 真实数据获取器")
     print("=" * 60)
+
+    # 检查数据新鲜度
+    if args.check and args.source == 'akshare':
+        from akshare_fetcher import AKShareDataFetcher
+        fetcher = AKShareDataFetcher()
+        result = fetcher.check_data_freshness()
+        print(f"\n检查时间: {result['check_time']}")
+        for source, info in result.get('sources', {}).items():
+            print(f"\n{source}:")
+            for key, value in info.items():
+                print(f"  {key}: {value}")
+        return
 
     # 创建数据获取器
     fetcher = RealDataFetcher(source=args.source, tushare_token=args.token)
