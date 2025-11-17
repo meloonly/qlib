@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  # 主交易系统服务
+  trading-system:
+    build: .
+    container_name: auto-trading-system
+    restart: unless-stopped
+    volumes:
+      # 持久化数据
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./reports:/app/reports
+      - ./backups:/app/backups
+      # 配置文件
+      - ./system_config.yaml:/app/system_config.yaml:ro
+      - ./email_config.json:/app/email_config.json:ro
+      # 数据库
+      - ./portfolio.db:/app/portfolio.db
+      - ./strategy_performance.json:/app/strategy_performance.json
+    environment:
+      - TZ=Asia/Shanghai
+      - PYTHONUNBUFFERED=1
+    networks:
+      - trading-network
+    # 启动调度服务
+    command: ["python", "scheduler.py", "start"]
+
+  # Web仪表盘服务
+  web-dashboard:
+    build: .
+    container_name: trading-dashboard
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./logs:/app/logs
+      - ./reports:/app/reports
+      - ./portfolio.db:/app/portfolio.db
+      - ./system_config.yaml:/app/system_config.yaml:ro
+      - ./email_config.json:/app/email_config.json:ro
+    environment:
+      - TZ=Asia/Shanghai
+      - FLASK_ENV=production
+    networks:
+      - trading-network
+    command: ["python", "web_dashboard.py", "--host", "0.0.0.0", "--port", "5000"]
+    depends_on:
+      - trading-system
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/system_status"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+
+networks:
+  trading-network:
+    driver: bridge
+
+volumes:
+  trading-data:
+    driver: local
