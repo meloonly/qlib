@@ -31,6 +31,7 @@ scripts/auto_trading/backups/
 scripts/auto_trading/.scheduler*.json
 scripts/auto_trading/.scheduler.pid
 scripts/auto_trading/strategy_performance.json
+scripts/auto_trading/risk_history.json
 scripts/auto_trading/reports/*.html
 scripts/auto_trading/reports/*.xlsx
 scripts/auto_trading/reports/*.csv
