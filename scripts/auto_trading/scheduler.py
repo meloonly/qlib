@@ -50,6 +50,8 @@ except ImportError:
 
 from config_manager import ConfigManager
 from logger import SystemLogger
+from data_maintenance import DataMaintenance
+from alert_system import AlertSystem, SystemMonitor
 
 
 class TradingScheduler:
@@ -63,6 +65,13 @@ class TradingScheduler:
         """初始化调度器"""
         self.config = ConfigManager()
         self.logger = SystemLogger('scheduler')
+
+        # 初始化告警系统
+        self.alert = AlertSystem()
+        self.monitor = SystemMonitor(self.alert)
+
+        # 初始化数据维护
+        self.data_maintenance = DataMaintenance()
 
         # 状态文件
         self.status_file = Path(__file__).parent / '.scheduler_status.json'
@@ -147,30 +156,30 @@ class TradingScheduler:
 
     def job_data_update(self):
         """
-        数据更新任务
+        数据增量更新任务（使用DataMaintenance）
 
         默认每天9:30执行（开盘后）
         """
-        self.logger.info("开始执行数据更新...")
+        self.logger.info("开始执行数据增量更新...")
         self._update_task_status('data_update', 'running')
 
         try:
-            from real_data_fetcher import RealDataFetcher
-            fetcher = RealDataFetcher()
             stocks = self.config.get_stock_pool()
 
-            data = fetcher.fetch_multiple_stocks(stocks, days=30)
+            # 使用增量更新（只更新缺失的数据）
+            stats = self.data_maintenance.incremental_update(stocks, source='akshare')
 
-            if data is not None and len(data) > 0:
-                result_msg = f"更新 {len(data.columns)} 只股票数据"
-                self.logger.info(f"数据更新完成: {result_msg}")
-                self._update_task_status('data_update', 'success', result_msg)
-            else:
-                self._update_task_status('data_update', 'failed', '无数据返回')
+            result_msg = f"新增{stats['new']}只 更新{stats['updated']}只 失败{stats['failed']}只"
+            self.logger.info(f"数据更新完成: {result_msg}")
+            self._update_task_status('data_update', 'success', result_msg)
+
+            # 发送告警报告
+            self.alert.send_data_update_report(stats)
 
         except Exception as e:
             self.logger.log_exception(e, "数据更新")
             self._update_task_status('data_update', 'failed', str(e))
+            self.alert.send_error("数据更新", str(e))
 
     def job_database_backup(self):
         """
@@ -218,13 +227,16 @@ class TradingScheduler:
 
     def job_health_check(self):
         """
-        系统健康检查任务
+        系统健康检查任务（集成SystemMonitor）
 
         默认每小时执行一次
         """
         self.logger.debug("执行系统健康检查...")
 
         try:
+            # 使用SystemMonitor进行全面检查
+            status = self.monitor.check_system_health()
+
             issues = []
 
             # 检查磁盘空间
@@ -232,6 +244,7 @@ class TradingScheduler:
             free_gb = free / (1024 ** 3)
             if free_gb < 1:
                 issues.append(f"磁盘空间不足: {free_gb:.2f} GB")
+                self.alert.send(f"磁盘空间不足: {free_gb:.2f} GB", level="WARNING")
 
             # 检查日志文件大小
             log_dir = Path(__file__).parent / 'logs'
@@ -244,6 +257,7 @@ class TradingScheduler:
             db_file = Path(__file__).parent / 'portfolio.db'
             if not db_file.exists():
                 issues.append("投资组合数据库不存在")
+                self.alert.send("投资组合数据库不存在", level="ERROR")
 
             if issues:
                 self.logger.warning(f"健康检查发现问题: {', '.join(issues)}")
@@ -254,6 +268,7 @@ class TradingScheduler:
         except Exception as e:
             self.logger.log_exception(e, "健康检查")
             self._update_task_status('health_check', 'failed', str(e))
+            self.alert.send_error("健康检查", str(e))
 
     def job_log_cleanup(self):
         """
@@ -327,6 +342,78 @@ class TradingScheduler:
             self.logger.log_exception(e, "性能报告")
             self._update_task_status('performance_report', 'failed', str(e))
 
+    def job_data_integrity_check(self):
+        """
+        数据完整性检查任务
+
+        默认每周三凌晨执行
+        """
+        self.logger.info("开始检查数据完整性...")
+        self._update_task_status('data_integrity_check', 'running')
+
+        try:
+            stocks = self.config.get_stock_pool()
+
+            # 检查数据完整性
+            report = self.data_maintenance.check_data_integrity(stocks)
+
+            total_issues = len(report.get('issues', []))
+            result_msg = f"发现 {total_issues} 个问题"
+
+            if total_issues > 0:
+                self.logger.warning(f"数据完整性检查: {result_msg}")
+                self._update_task_status('data_integrity_check', 'warning', result_msg)
+
+                # 发送告警
+                details = {
+                    "检查股票数": report['total_stocks'],
+                    "发现问题": total_issues,
+                    "数据过时": report['summary'].get('outdated', 0),
+                    "日期缺失": report['summary'].get('missing_dates', 0)
+                }
+                self.alert.send("数据完整性检查发现问题", level="WARNING", details=details)
+            else:
+                self.logger.info("数据完整性检查: 无问题")
+                self._update_task_status('data_integrity_check', 'success', '数据正常')
+
+        except Exception as e:
+            self.logger.log_exception(e, "数据完整性检查")
+            self._update_task_status('data_integrity_check', 'failed', str(e))
+            self.alert.send_error("数据完整性检查", str(e))
+
+    def job_data_fix(self):
+        """
+        数据自动修复任务
+
+        默认每周三凌晨1点执行（在完整性检查之后）
+        """
+        self.logger.info("开始自动修复数据问题...")
+        self._update_task_status('data_fix', 'running')
+
+        try:
+            stocks = self.config.get_stock_pool()
+
+            # 自动修复数据
+            stats = self.data_maintenance.fix_data_issues(stocks)
+
+            result_msg = f"处理{stats['processed']}个文件 修复{stats['fixed_duplicates']}条重复"
+            self.logger.info(f"数据修复完成: {result_msg}")
+            self._update_task_status('data_fix', 'success', result_msg)
+
+            # 发送告警（如果有修复）
+            if stats['processed'] > 0:
+                details = {
+                    "处理文件": stats['processed'],
+                    "删除重复": stats['fixed_duplicates'],
+                    "修复零值": stats['fixed_zeros']
+                }
+                self.alert.send("数据修复完成", level="INFO", details=details)
+
+        except Exception as e:
+            self.logger.log_exception(e, "数据修复")
+            self._update_task_status('data_fix', 'failed', str(e))
+            self.alert.send_error("数据修复", str(e))
+
     # ==================== 调度管理 ====================
 
     def setup_jobs(self):
@@ -392,7 +479,25 @@ class TradingScheduler:
             replace_existing=True
         )
 
-        self.logger.info("定时任务配置完成")
+        # 7. 数据完整性检查 - 每周三00:00
+        self.scheduler.add_job(
+            self.job_data_integrity_check,
+            CronTrigger(day_of_week='wed', hour=0, minute=0),
+            id='data_integrity_check',
+            name='数据完整性检查',
+            replace_existing=True
+        )
+
+        # 8. 数据自动修复 - 每周三01:00 (在完整性检查后)
+        self.scheduler.add_job(
+            self.job_data_fix,
+            CronTrigger(day_of_week='wed', hour=1, minute=0),
+            id='data_fix',
+            name='数据自动修复',
+            replace_existing=True
+        )
+
+        self.logger.info("定时任务配置完成 (共8个任务)")
         return True
 
     def start(self):
